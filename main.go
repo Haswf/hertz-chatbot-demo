@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"time"
+
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
@@ -11,8 +14,6 @@ import (
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/schema"
-	"net/http"
-	"time"
 )
 
 type ChatReq struct {
@@ -23,7 +24,6 @@ func renderError(c *app.RequestContext, status int, err error) {
 	c.JSON(status, map[string]interface{}{
 		"message": err,
 	})
-	return
 }
 
 func ChatContextRecorder() app.HandlerFunc {
@@ -60,7 +60,7 @@ func ChatContextRecorder() app.HandlerFunc {
 func main() {
 	h := server.Default()
 	h.Use(ChatContextRecorder())
-	llm, err := ollama.New(ollama.WithModel("llama2"))
+	llm, err := ollama.New(ollama.WithModel("gemma"))
 	if err != nil {
 		panic(err)
 	}
@@ -82,10 +82,14 @@ func main() {
 			message = history.([]llms.MessageContent)
 		}
 		message = append(message, llms.TextParts(schema.ChatMessageTypeHuman, req.Query))
+		for _, msg := range message {
+			hlog.CtxInfof(ctx, "%s msg: %s", msg.Role, msg.Parts)
+		}
 
 		resp, err := llm.GenerateContent(ctx, message, llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
 			return s.Publish(&sse.Event{
-				Data: chunk,
+				Event: "chunk",
+				Data:  chunk,
 			})
 		}))
 		if err != nil {
@@ -94,8 +98,14 @@ func main() {
 		}
 
 		if len(resp.Choices) > 0 {
+
+			s.Publish(&sse.Event{
+				Event: "full",
+				Data:  []byte(resp.Choices[0].Content),
+			})
 			c.Set("response", resp.Choices[0].Content)
 		}
+
 	})
 
 	h.Spin()
