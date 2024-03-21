@@ -1,6 +1,8 @@
 module langchain
 
-go 1.19
+go 1.21
+
+toolchain go1.21.2
 
 require (
 	github.com/cloudwego/hertz v0.8.0
