@@ -45,7 +45,6 @@ func Chat(ctx context.Context, c *app.RequestContext) {
 	}
 
 	if len(resp.Choices) > 0 {
-
 		err = s.Publish(&sse.Event{
 			Event: "full",
 			Data:  []byte(resp.Choices[0].Content),
@@ -54,6 +53,7 @@ func Chat(ctx context.Context, c *app.RequestContext) {
 			hlog.CtxErrorf(ctx, "failed to publish: %s", err)
 			return
 		}
+		c.Set("query", req.Query)
 		c.Set("response", resp.Choices[0].Content)
 	}
 }
@@ -69,13 +69,12 @@ func SinglePrompt(ctx context.Context, c *app.RequestContext) {
 	c.SetStatusCode(http.StatusOK)
 	s := sse.NewStream(c)
 
-	response, err := llms.GenerateFromSinglePrompt(ctx, llm, req.Query,
-		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
-			return s.Publish(&sse.Event{
-				Event: "chunk",
-				Data:  chunk,
-			})
-		}))
+	response, err := llms.GenerateFromSinglePrompt(ctx, llm, req.Query, llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
+		return s.Publish(&sse.Event{
+			Event: "chunk",
+			Data:  chunk,
+		})
+	}))
 	if err != nil {
 		hlog.CtxErrorf(ctx, "failed to generate: %s", err)
 		return

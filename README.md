@@ -57,19 +57,29 @@ var llm llms.Model
 func main() {
 	h := server.Default()
 	var err error
-	llm, err = ollama.New(ollama.WithModel("gemma"))
+
+	// 初始化 llama2 模型
+	llm, err = ollama.New(ollama.WithModel("llama2"))
 	if err != nil {
 		panic(err)
 	}
+
+    // 注册路由
 	h.POST("/single_prompt", SinglePrompt)
 
 	h.Spin()
 }
+
 ```
 
 2. 使用 SSE 中间件流式返回响应
 
 ``` go
+
+type ChatReq struct {
+	Query string `json:"query"`
+}
+
 func SinglePrompt(ctx context.Context, c *app.RequestContext) {
 	var req ChatReq
 	err := c.BindAndValidate(&req)
@@ -78,8 +88,8 @@ func SinglePrompt(ctx context.Context, c *app.RequestContext) {
 	c.SetStatusCode(http.StatusOK)
 	s := sse.NewStream(c)
 
-	response, err := llms.GenerateFromSinglePrompt(ctx, llm, req.Query, 
-		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
+	response, err := llms.GenerateFromSinglePrompt(ctx, llm, req.Query,
+      llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
 		return s.Publish(&sse.Event{
 			Event: "chunk",
 			Data:  chunk,
@@ -163,6 +173,7 @@ func ChatContextRecorder() app.HandlerFunc {
 
 2. 使用中间件在请求上下文中注入的历史消息
 ``` go
+
 func Chat(ctx context.Context, c *app.RequestContext) {
 	// ...
 	c.SetStatusCode(http.StatusOK)
@@ -173,16 +184,22 @@ func Chat(ctx context.Context, c *app.RequestContext) {
 	if found {
 		message = history.([]llms.MessageContent)
 	}
-    // 追加JSON中携带的Query
+
 	message = append(message, llms.TextParts(schema.ChatMessageTypeHuman, req.Query))
 
-	resp, err := llm.GenerateContent(ctx, message, llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
+	resp, err := llm.GenerateContent(ctx, message, llms.WithStreamingFunc(
+		func(ctx context.Context, chunk []byte) error {
 		return s.Publish(&sse.Event{
 			Event: "chunk",
 			Data:  chunk,
 		})
 	}))
-    // ...
+	// ...
+
+	if len(resp.Choices) > 0 {
+		c.Set("query", req.Query)
+		c.Set("response", resp.Choices[0].Content)
+	}
 }
 ```
 
